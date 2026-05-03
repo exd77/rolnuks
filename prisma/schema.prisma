@@ -1,0 +1,543 @@
+// ORBLOX - Prisma schema
+// Marketplace Roblox: Robux Gamepass, Robux Instan, Item Game (multi-seller hybrid)
+
+// In Prisma 7, datasource URL moves to prisma.config.ts.
+// PrismaClient must be instantiated with a driver adapter (PrismaPg).
+// See src/lib/db.ts and prisma.config.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =====================================================
+// ENUMS
+// =====================================================
+
+enum UserRole {
+  BUYER
+  SELLER
+  ADMIN
+  STAFF
+}
+
+enum SellerStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum CategoryType {
+  ROBUX_GAMEPASS
+  ROBUX_INSTANT
+  ITEM_GAME
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  REJECTED
+}
+
+enum DeliveryMethod {
+  GAMEPASS
+  GROUP_PAYOUT
+  TRADE
+  MANUAL_ITEM
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  REFUNDED
+  DISPUTED
+}
+
+enum FulfillmentStatus {
+  PENDING
+  IN_PROGRESS
+  DELIVERED
+  CONFIRMED
+  AUTO_RELEASED
+  DISPUTED
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  CANCELLED
+  EXPIRED
+  REFUNDED
+}
+
+enum PayoutStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum DisputeStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED_BUYER
+  RESOLVED_SELLER
+  CLOSED
+}
+
+enum NotificationType {
+  ORDER_CREATED
+  ORDER_PAID
+  ORDER_PROCESSING
+  ORDER_DELIVERED
+  ORDER_COMPLETED
+  ORDER_CANCELLED
+  PAYOUT_REQUESTED
+  PAYOUT_APPROVED
+  PAYOUT_REJECTED
+  SELLER_APPROVED
+  SELLER_REJECTED
+  DISPUTE_OPENED
+  DISPUTE_RESOLVED
+  GENERAL
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+// =====================================================
+// AUTH (NextAuth v5 compatible)
+// =====================================================
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  emailVerified  DateTime?
+  password       String? // null for future OAuth-only signups
+  name           String?
+  image          String?
+  role           UserRole  @default(BUYER)
+  robloxUsername String?
+  phone          String?
+  balance        Decimal   @default(0) @db.Decimal(15, 2)
+  bannedAt       DateTime?
+  banReason      String?
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  accounts         Account[]
+  sessions         Session[]
+  sellerProfile    SellerProfile?
+  ordersAsBuyer    Order[]         @relation("BuyerOrders")
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  disputesOpened   Dispute[]       @relation("DisputeOpenedBy")
+  payoutsProcessed Payout[]        @relation("PayoutProcessedBy")
+  ticketsCreated   Ticket[]        @relation("TicketCreatedBy")
+  ticketMessages   TicketMessage[]
+  fulfilledItems   OrderItem[]     @relation("OrderItemFulfilledBy")
+  approvedSellers  SellerProfile[] @relation("SellerApprovedBy")
+
+  @@index([role])
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// =====================================================
+// SELLER
+// =====================================================
+
+model SellerProfile {
+  id               String       @id @default(cuid())
+  userId           String       @unique
+  storeName        String       @unique
+  storeSlug        String       @unique
+  description      String?      @db.Text
+  logo             String?
+  banner           String?
+  status           SellerStatus @default(PENDING)
+  commissionRate   Decimal      @default(0.03) @db.Decimal(5, 4) // 3% default
+  // KYC
+  fullName         String?
+  ktpNumber        String?
+  ktpImageUrl      String?
+  selfieImageUrl   String?
+  // Payout info
+  bankName         String?
+  bankAccountNo    String?
+  bankAccountName  String?
+  // Stats
+  totalEarnings    Decimal      @default(0) @db.Decimal(15, 2)
+  availableBalance Decimal      @default(0) @db.Decimal(15, 2)
+  pendingBalance   Decimal      @default(0) @db.Decimal(15, 2)
+  rating           Decimal?     @db.Decimal(3, 2)
+  totalOrders      Int          @default(0)
+  // Lifecycle
+  approvedAt       DateTime?
+  approvedById     String?
+  rejectedReason   String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy User?       @relation("SellerApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  products   Product[]
+  payouts    Payout[]
+  orderItems OrderItem[]
+
+  @@index([status])
+  @@index([storeSlug])
+}
+
+// =====================================================
+// CATALOG
+// =====================================================
+
+model Category {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  type        CategoryType
+  description String?
+  icon        String?
+  parentId    String?
+  isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+
+  parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryParent")
+  products Product[]
+
+  @@index([type])
+  @@index([parentId])
+}
+
+model Game {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  image     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  products Product[]
+
+  @@index([slug])
+}
+
+model Product {
+  id                     String         @id @default(cuid())
+  sellerId               String? // null = admin product (Robux)
+  categoryId             String
+  gameId                 String?
+  title                  String
+  slug                   String         @unique
+  description            String?        @db.Text
+  images                 String[]
+  basePrice              Decimal        @db.Decimal(15, 2)
+  stock                  Int            @default(-1) // -1 = unlimited (used for Robux)
+  sku                    String?        @unique
+  // Robux-specific
+  robuxAmount            Int?
+  includesPremium        Boolean        @default(false)
+  gamepassRequiredAmount Int? // computed: ceil(robuxAmount / 0.7)
+  // Item-specific (multi-seller)
+  itemAttributes         Json?
+  // Common
+  deliveryMethod         DeliveryMethod
+  status                 ProductStatus  @default(DRAFT)
+  featured               Boolean        @default(false)
+  sortOrder              Int            @default(0)
+  metaTitle              String?
+  metaDescription        String?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  seller     SellerProfile? @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  category   Category       @relation(fields: [categoryId], references: [id])
+  game       Game?          @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  orderItems OrderItem[]
+
+  @@index([categoryId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([slug])
+  @@index([gameId])
+}
+
+// =====================================================
+// ORDER & PAYMENT
+// =====================================================
+
+model Order {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique // ORB-YYYYMMDD-XXXX
+  buyerId         String
+  status          OrderStatus @default(PENDING_PAYMENT)
+  subtotal        Decimal     @db.Decimal(15, 2)
+  discount        Decimal     @default(0) @db.Decimal(15, 2)
+  total           Decimal     @db.Decimal(15, 2)
+  paymentMethod   String?
+  midtransOrderId String?     @unique
+  notes           String?     @db.Text
+  paidAt          DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  buyer   User        @relation("BuyerOrders", fields: [buyerId], references: [id])
+  items   OrderItem[]
+  payment Payment?
+  dispute Dispute?
+
+  @@index([buyerId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([orderNumber])
+}
+
+model OrderItem {
+  id                   String            @id @default(cuid())
+  orderId              String
+  productId            String
+  sellerId             String?
+  // Snapshot from product (for historical accuracy)
+  productTitle         String
+  productImage         String?
+  unitPrice            Decimal           @db.Decimal(15, 2)
+  quantity             Int               @default(1)
+  subtotal             Decimal           @db.Decimal(15, 2)
+  // Buyer-supplied delivery info
+  robloxUsernameTarget String?
+  gamepassLink         String?
+  fulfillmentNotes     String?
+  // Fulfillment tracking
+  fulfillmentStatus    FulfillmentStatus @default(PENDING)
+  proofScreenshot      String?
+  fulfilledAt          DateTime?
+  fulfilledById        String?
+  buyerConfirmedAt     DateTime?
+  autoReleaseAt        DateTime? // 48h after delivered
+  // Commission tracking (snapshot)
+  commissionRate       Decimal?          @db.Decimal(5, 4)
+  commissionAmount     Decimal?          @db.Decimal(15, 2)
+  sellerEarning        Decimal?          @db.Decimal(15, 2)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  order       Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product        @relation(fields: [productId], references: [id])
+  seller      SellerProfile? @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  fulfilledBy User?          @relation("OrderItemFulfilledBy", fields: [fulfilledById], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([sellerId])
+  @@index([fulfillmentStatus])
+  @@index([autoReleaseAt])
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  orderId        String        @unique
+  provider       String        @default("midtrans")
+  transactionId  String?       @unique
+  paymentType    String? // bank_transfer, gopay, qris, etc
+  vaNumber       String?
+  bank           String?
+  amount         Decimal       @db.Decimal(15, 2)
+  currency       String        @default("IDR")
+  status         PaymentStatus @default(PENDING)
+  paidAt         DateTime?
+  expiredAt      DateTime?
+  rawWebhookJson Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([transactionId])
+}
+
+// =====================================================
+// PAYOUT & DISPUTE
+// =====================================================
+
+model Payout {
+  id              String       @id @default(cuid())
+  payoutNumber    String       @unique // PAY-YYYYMMDD-XXXX
+  sellerId        String
+  amount          Decimal      @db.Decimal(15, 2)
+  status          PayoutStatus @default(REQUESTED)
+  bankName        String
+  bankAccountNo   String
+  bankAccountName String
+  notes           String?      @db.Text
+  processedById   String?
+  processedAt     DateTime?
+  rejectedReason  String?
+  proofImage      String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  seller      SellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  processedBy User?         @relation("PayoutProcessedBy", fields: [processedById], references: [id], onDelete: SetNull)
+
+  @@index([sellerId])
+  @@index([status])
+}
+
+model Dispute {
+  id          String        @id @default(cuid())
+  orderId     String        @unique
+  openedById  String
+  reason      String
+  description String?       @db.Text
+  evidence    String[]
+  status      DisputeStatus @default(OPEN)
+  resolution  String?       @db.Text
+  resolvedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  order    Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  openedBy User  @relation("DisputeOpenedBy", fields: [openedById], references: [id])
+
+  @@index([status])
+}
+
+// =====================================================
+// SUPPORT TICKETS
+// =====================================================
+
+model Ticket {
+  id           String       @id @default(cuid())
+  ticketNumber String       @unique
+  createdById  String
+  subject      String
+  status       TicketStatus @default(OPEN)
+  priority     String       @default("NORMAL")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  createdBy User            @relation("TicketCreatedBy", fields: [createdById], references: [id])
+  messages  TicketMessage[]
+
+  @@index([status])
+  @@index([createdById])
+}
+
+model TicketMessage {
+  id          String   @id @default(cuid())
+  ticketId    String
+  senderId    String
+  message     String   @db.Text
+  attachments String[]
+  createdAt   DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender User   @relation(fields: [senderId], references: [id])
+
+  @@index([ticketId])
+}
+
+// =====================================================
+// UTILITY
+// =====================================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String?          @db.Text
+  payload   Json?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String // e.g. "PRODUCT_UPDATED", "ORDER_FULFILLED"
+  targetType String? // e.g. "Product", "Order"
+  targetId   String?
+  diff       Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+model SiteSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
