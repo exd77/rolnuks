@@ -31,6 +31,69 @@ The vibe is simple: one app for selling Robux packages and game items, with admi
 - **Validation:** Zod
 - **Logging:** Pino-ready setup
 
+## Production app workflow
+
+This is the high-level production flow for the marketplace. The app has three main actors: buyers, sellers, and admins. Payments go through Midtrans, while order fulfillment, escrow, disputes, payouts, analytics, and monitoring stay inside the app.
+
+```mermaid
+flowchart TD
+  A[Visitor opens storefront] --> B[Browse catalog / product detail]
+  B --> C{Has account?}
+  C -- No --> D[Register / Login]
+  C -- Yes --> E[Create checkout]
+  D --> E
+
+  E --> F[API: /api/checkout]
+  F --> G[Rate limit + validate order]
+  G --> H[Create order in PostgreSQL]
+  H --> I[Redirect buyer to Midtrans Snap]
+  I --> J[Buyer completes payment]
+  J --> K[Midtrans webhook: /api/webhooks/midtrans]
+  K --> L[Verify signature + update payment status]
+
+  L --> M{Product type}
+  M -- Robux Gamepass / Instan --> N[Admin fulfillment queue]
+  N --> O[Admin fulfills order]
+  O --> P[Buyer sees completed order + invoice]
+
+  M -- Seller game item --> Q[Escrow item order]
+  Q --> R[Seller processes delivery]
+  R --> S[Buyer confirms / raises dispute]
+  S -- Confirmed --> T[Release seller earnings]
+  S -- Dispute --> U[Admin dispute review]
+  U --> V[Resolve dispute + update order]
+
+  T --> W[Seller requests payout]
+  W --> X[Admin payout review]
+  X --> Y[Manual payout marked paid/rejected]
+
+  O --> Z[Admin analytics + notifications]
+  V --> Z
+  Y --> Z
+  K --> Z
+
+  AA[Client/server error] --> AB[API: /api/monitoring/error]
+  AB --> AC[Rate limit + capture monitoring event]
+  AC --> Z
+```
+
+### Production operations flow
+
+```mermaid
+flowchart LR
+  A[Developer pushes changes] --> B[Run typecheck, lint, build]
+  B --> C[Deploy to VPS / Node runtime]
+  C --> D[Run Prisma deploy migrations]
+  D --> E[Start Next.js production server]
+  E --> F[Nginx reverse proxy + HTTPS]
+  F --> G[Users access app]
+
+  H[PostgreSQL] <--> E
+  I[Redis] <--> E
+  J[MinIO / S3-compatible storage] <--> E
+  K[Midtrans dashboard] <--> E
+```
+
 ## Getting started
 
 ### 1. Install dependencies
