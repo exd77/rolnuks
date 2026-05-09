@@ -5,6 +5,9 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { DashboardNav } from "@/components/layout/dashboard-nav";
 
+// Auth-gated + DB-dependent — skip prerender during build.
+export const dynamic = "force-dynamic";
+
 export default async function DashboardLayout({
   children,
 }: {

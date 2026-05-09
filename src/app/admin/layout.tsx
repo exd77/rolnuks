@@ -11,6 +11,9 @@ export const metadata: Metadata = {
   title: "Admin Dashboard",
 };
 
+// Auth + DB queries in every child page — force dynamic to skip prerender.
+export const dynamic = "force-dynamic";
+
 export default async function AdminLayout({
   children,
 }: {

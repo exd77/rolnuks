@@ -11,6 +11,9 @@ export const metadata: Metadata = {
   title: "Dashboard Seller",
 };
 
+// Auth-gated + DB-dependent — skip prerender during build.
+export const dynamic = "force-dynamic";
+
 export default async function SellerDashboardLayout({
   children,
 }: {

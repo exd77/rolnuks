@@ -34,3 +34,21 @@ export function formatIDR(amount: number | string | bigint): string {
 export function calcGamepassRequiredAmount(robuxAmount: number): number {
   return Math.ceil(robuxAmount / 0.7);
 }
+
+const HTML_ESCAPE_MAP: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+/**
+ * Escape a string for safe interpolation in HTML.
+ * Prevents XSS when embedding user-supplied values in server-generated HTML
+ * (e.g. invoice templates).
+ */
+export function escapeHtml(unsafe: string | null | undefined): string {
+  if (!unsafe) return "";
+  return unsafe.replace(/[&<>"']/g, (ch) => HTML_ESCAPE_MAP[ch] ?? ch);
+}

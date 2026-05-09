@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { auth } from "@/auth";
 import { getOrderForInvoice } from "@/server/services/admin-order";
-import { formatIDR } from "@/lib/utils";
+import { escapeHtml, formatIDR } from "@/lib/utils";
 
 /**
  * Invoice generation endpoint.
@@ -37,7 +37,7 @@ export async function GET(
   return new NextResponse(html, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Content-Disposition": `inline; filename="invoice-${order.orderNumber}.html"`,
+      "Content-Disposition": `inline; filename="invoice-${order.orderNumber.replace(/[^a-zA-Z0-9\-]/g, "_")}.html"`,
     },
   });
 }
@@ -61,9 +61,9 @@ function generateInvoiceHtml(order: InvoiceOrder): string {
 
   const itemRows = order.items
     .map(
-      (item) => `
+      (item: InvoiceOrder["items"][number]) => `
     <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #eee;">${item.productTitle}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;">${escapeHtml(item.productTitle)}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${formatIDR(item.unitPrice.toString())}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${formatIDR(item.subtotal.toString())}</td>
@@ -77,7 +77,7 @@ function generateInvoiceHtml(order: InvoiceOrder): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Invoice ${order.orderNumber} — ORBLOX</title>
+  <title>Invoice ${escapeHtml(order.orderNumber)} — ORBLOX</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1a1a1a; padding: 40px; max-width: 800px; margin: 0 auto; }
@@ -117,7 +117,7 @@ function generateInvoiceHtml(order: InvoiceOrder): string {
     </div>
     <div class="invoice-meta">
       <h2>INVOICE</h2>
-      <p>${order.orderNumber}</p>
+      <p>${escapeHtml(order.orderNumber)}</p>
       <p>Tanggal: ${createdDate}</p>
     </div>
   </div>
@@ -127,15 +127,15 @@ function generateInvoiceHtml(order: InvoiceOrder): string {
     <div class="info-grid">
       <div class="info-item">
         <label>Nama</label>
-        <span>${order.buyer.name ?? "-"}</span>
+        <span>${escapeHtml(order.buyer.name) || "-"}</span>
       </div>
       <div class="info-item">
         <label>Email</label>
-        <span>${order.buyer.email}</span>
+        <span>${escapeHtml(order.buyer.email)}</span>
       </div>
       <div class="info-item">
         <label>Roblox Username</label>
-        <span>${order.buyer.robloxUsername ?? "-"}</span>
+        <span>${escapeHtml(order.buyer.robloxUsername) || "-"}</span>
       </div>
       <div class="info-item">
         <label>Tanggal Bayar</label>
@@ -175,11 +175,11 @@ function generateInvoiceHtml(order: InvoiceOrder): string {
     <div class="info-grid">
       <div class="info-item">
         <label>Metode</label>
-        <span>${order.payment.paymentType ? order.payment.paymentType.replace(/_/g, " ") : "-"}</span>
+        <span>${order.payment.paymentType ? escapeHtml(order.payment.paymentType.replace(/_/g, " ")) : "-"}</span>
       </div>
       <div class="info-item">
         <label>Transaction ID</label>
-        <span>${order.payment.transactionId ?? "-"}</span>
+        <span>${escapeHtml(order.payment.transactionId) || "-"}</span>
       </div>
     </div>
   </div>
